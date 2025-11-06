@@ -285,3 +285,5 @@ with tab_about:
 - Parth Patil
 
 """)
+
+#streamlit run streamlit_app.py
