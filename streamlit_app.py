@@ -1,22 +1,39 @@
 
 import io
 import sys
+import os
+import shutil
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 from sklearn.cluster import KMeans
 
+# Ensure data directory and default CSVs
+data_dir = "data"
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
+
+# Copy default CSVs to data/ if they don't exist
+if not os.path.exists(os.path.join(data_dir, "netflix_titles.csv")) and os.path.exists("netflix_titles.csv"):
+    shutil.copy("netflix_titles.csv", os.path.join(data_dir, "netflix_titles.csv"))
+
+if not os.path.exists(os.path.join(data_dir, "spotify_youtube.csv")) and os.path.exists("Spotify_Youtube.csv"):
+    shutil.copy("Spotify_Youtube.csv", os.path.join(data_dir, "spotify_youtube.csv"))
+
 st.set_page_config(page_title="Netflix & Spotify Explorer", layout="wide")
 
-def load_csv(uploaded_file, fallback_path=None):
+def load_csv(uploaded_file, fallback_path):
     if uploaded_file is not None:
         try:
-            return pd.read_csv(uploaded_file)
+            df = pd.read_csv(uploaded_file)
+            # Save uploaded file to fallback_path for persistence
+            df.to_csv(fallback_path, index=False)
+            return df
         except Exception as e:
             st.warning(f"Could not read uploaded CSV: {e}")
             return None
-    if fallback_path:
+    if fallback_path and os.path.exists(fallback_path):
         try:
             return pd.read_csv(fallback_path)
         except Exception as e:
@@ -33,7 +50,8 @@ def ensure_list_col_exploded(df, col):
     return d
 
 def plot_and_show(fig):
-    st.pyplot(fig, clear_figure=True, use_container_width=True)
+    st.pyplot(fig, clear_figure=True, width='stretch')
+    plt.close(fig)
 
 st.sidebar.title("Data")
 st.sidebar.write("Upload your CSVs (or keep blank to try fallback paths).")
@@ -41,8 +59,8 @@ st.sidebar.write("Upload your CSVs (or keep blank to try fallback paths).")
 netflix_file = st.sidebar.file_uploader("Netflix CSV (netflix_titles.csv)", type=["csv"], key="netflix")
 spotify_file = st.sidebar.file_uploader("Spotify CSV (tracks.csv / Spotify_Youtube.csv)", type=["csv"], key="spotify")
 
-fallback_netflix = st.sidebar.text_input("Fallback Netflix path", value="data/netflix_titles.csv")
-fallback_spotify = st.sidebar.text_input("Fallback Spotify path", value="data/tracks.csv")
+fallback_netflix = st.sidebar.text_input("Fallback Netflix path", value=os.path.join(data_dir, "netflix_titles.csv"))
+fallback_spotify = st.sidebar.text_input("Fallback Spotify path", value=os.path.join(data_dir, "spotify_youtube.csv"))
 
 netflix = load_csv(netflix_file, fallback_netflix)
 spotify = load_csv(spotify_file, fallback_spotify)
@@ -151,6 +169,93 @@ with tab_netflix:
             plot_and_show(fig)
         else:
             st.warning("Required columns for heatmap not found.")
+
+        # Additional Netflix time-series & seasonality plots
+        # Use filtered (year range) for time series where possible
+        ds = filtered.copy()
+        if 'date_added' in ds.columns:
+            ds['date_added'] = pd.to_datetime(ds['date_added'], errors='coerce')
+            ds_dates = ds.dropna(subset=['date_added']).copy()
+
+            if not ds_dates.empty:
+                ts_weekly = ds_dates.set_index('date_added').resample('W').size()
+                ts_monthly = ds_dates.set_index('date_added').resample('ME').size()
+
+                fig = plt.figure(figsize=(8, 2.5))
+                plt.plot(ts_weekly.index, ts_weekly.values, color='tab:blue')
+                plt.title('Weekly Netflix Additions')
+                plt.xlabel('Week')
+                plt.ylabel('Count')
+                plt.tight_layout()
+                plot_and_show(fig)
+
+                fig = plt.figure(figsize=(8, 2.5))
+                plt.plot(ts_monthly.index, ts_monthly.values, color='tab:orange')
+                plt.title('Monthly Netflix Additions')
+                plt.xlabel('Month')
+                plt.ylabel('Count')
+                plt.tight_layout()
+                plot_and_show(fig)
+
+                fig = plt.figure(figsize=(8, 2.5))
+                plt.plot(ts_monthly.index, ts_monthly.cumsum().values, color='tab:green')
+                plt.title('Cumulative Netflix Additions (by month)')
+                plt.xlabel('Month')
+                plt.ylabel('Cumulative Count')
+                plt.tight_layout()
+                plot_and_show(fig)
+            else:
+                st.info('No valid `date_added` values to plot time series in selected range.')
+        elif 'release_year' in ds.columns:
+            year_counts = ds['release_year'].dropna().astype(int).value_counts().sort_index()
+            if not year_counts.empty:
+                fig = plt.figure()
+                plt.plot(year_counts.index, year_counts.values)
+                plt.title('Yearly Netflix Releases')
+                plt.xlabel('Year')
+                plt.ylabel('Count')
+                plt.tight_layout()
+                plot_and_show(fig)
+            else:
+                st.info('No release_year data available for the selected range.')
+        else:
+            st.info('No date columns (`date_added` or `release_year`) available for time series.')
+
+        # Seasonality: month-by-month distribution and monthly average
+        if 'date_added' in ds.columns:
+            ds['date_added'] = pd.to_datetime(ds['date_added'], errors='coerce')
+            df_dates = ds.dropna(subset=['date_added']).copy()
+            if not df_dates.empty:
+                df_dates['year'] = df_dates['date_added'].dt.year
+                df_dates['month'] = df_dates['date_added'].dt.month
+                monthly_by_year = (df_dates.groupby(['year','month']).size().reset_index(name='count'))
+
+                if not monthly_by_year.empty:
+                    # boxplot of counts per month across years
+                    month_groups = [monthly_by_year.loc[monthly_by_year['month'] == m, 'count'].values for m in range(1,13)]
+                    fig = plt.figure(figsize=(10,3))
+                    plt.boxplot(month_groups, tick_labels=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'])
+                    plt.title('Distribution of Monthly Additions by Month (across years)')
+                    plt.xlabel('Month')
+                    plt.ylabel('Count')
+                    plt.tight_layout()
+                    plot_and_show(fig)
+
+                    monthly_avg = monthly_by_year.groupby('month')['count'].mean()
+                    fig = plt.figure(figsize=(8,2.5))
+                    plt.plot(monthly_avg.index, monthly_avg.values, marker='o')
+                    plt.xticks(range(1,13), ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'])
+                    plt.title('Average Titles Added per Month (across years)')
+                    plt.xlabel('Month')
+                    plt.ylabel('Average Count')
+                    plt.tight_layout()
+                    plot_and_show(fig)
+                else:
+                    st.info('Not enough date data to compute month-by-month distributions.')
+            else:
+                st.info('No valid `date_added` values to compute seasonality.')
+        else:
+            st.info('`date_added` column not present; seasonality plots skipped.')
 
 with tab_spotify:
     st.header("Spotify EDA")
@@ -262,6 +367,81 @@ with tab_spotify:
             st.caption("Tip: Try k=3..6 and see how clusters separate 'chill', 'party', 'workout', etc.")
         else:
             st.warning("danceability and/or energy not found; cannot cluster.")
+
+        # Additional Spotify visualizations
+        st.subheader("Density (KDE) of Audio Features")
+        if audio_features:
+            cols = audio_features[:6]
+            fig = plt.figure(figsize=(8,4))
+            for f in cols:
+                sp[f].dropna().plot(kind='kde', label=f)
+            plt.legend()
+            plt.title('Density (KDE) of Audio Features')
+            plt.xlabel('Value')
+            plt.tight_layout()
+            plot_and_show(fig)
+        else:
+            st.info('No audio features found for density plots.')
+
+        st.subheader('Pairwise Scatter Matrix')
+        from pandas.plotting import scatter_matrix
+        pair_cols = [c for c in ['danceability','energy','valence','tempo'] if c in sp.columns]
+        if len(pair_cols) >= 2:
+            sample = sp[pair_cols].dropna().sample(n=min(1000, len(sp)), random_state=42)
+            fig = plt.figure(figsize=(10,10))
+            _ = scatter_matrix(sample, figsize=(10,10), diagonal='kde')
+            plt.suptitle('Pairwise Scatter Matrix (sampled)')
+            plt.tight_layout()
+            # scatter_matrix draws directly to plt; capture current figure
+            plot_and_show(plt.gcf())
+        else:
+            st.info('Not enough audio feature columns for pair plots.')
+
+        st.subheader('Violin & Box: Danceability by Genre (Top)')
+        if genre_col and 'danceability' in sp.columns:
+            topg = sp[genre_col].dropna().value_counts().head(6).index
+            data = [sp.loc[sp[genre_col] == g, 'danceability'].dropna().values for g in topg]
+            if any(len(d) > 0 for d in data):
+                fig = plt.figure(figsize=(10,4))
+                plt.violinplot(data, showmedians=True)
+                plt.xticks(range(1, len(topg) + 1), topg, rotation=45)
+                plt.title('Violin plot: Danceability by Genre (Top 6)')
+                plt.tight_layout()
+                plot_and_show(fig)
+
+                fig = plt.figure(figsize=(10,4))
+                plt.boxplot(data)
+                plt.xticks(range(1, len(topg) + 1), topg, rotation=45)
+                plt.title('Box plot: Danceability by Genre (Top 6)')
+                plt.tight_layout()
+                plot_and_show(fig)
+            else:
+                st.info('Not enough danceability data per genre to draw violin/box plots.')
+        else:
+            st.info('Genre column or danceability column not available for violin/box plots.')
+
+        st.subheader('KMeans Model Visualization (centroids)')
+        if {'danceability','energy'}.issubset(set(sp.columns)):
+            Xv = sp[['danceability','energy']].dropna()
+            if len(Xv) > 10:
+                from sklearn.cluster import KMeans as _KMeans
+                k = st.slider('K for model viz', 2, 8, 4)
+                km2 = _KMeans(n_clusters=int(k), n_init=10, random_state=42)
+                labels2 = km2.fit_predict(Xv)
+                centers2 = km2.cluster_centers_
+                fig = plt.figure(figsize=(6,5))
+                plt.scatter(Xv['danceability'], Xv['energy'], c=labels2, alpha=0.4, s=20)
+                plt.scatter(centers2[:,0], centers2[:,1], c='red', s=120, marker='X', label='centroids')
+                plt.title(f'KMeans (k={k}) — danceability vs energy with centroids')
+                plt.xlabel('danceability')
+                plt.ylabel('energy')
+                plt.legend()
+                plt.tight_layout()
+                plot_and_show(fig)
+            else:
+                st.info('Not enough rows with danceability & energy to build model viz.')
+        else:
+            st.info('danceability and/or energy not present — cannot visualize model.')
 
 
 
