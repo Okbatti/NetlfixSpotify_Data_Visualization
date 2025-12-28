@@ -2,24 +2,11 @@
 import io
 import sys
 import os
-import shutil
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 from sklearn.cluster import KMeans
-
-# Ensure data directory and default CSVs
-data_dir = "data"
-if not os.path.exists(data_dir):
-    os.makedirs(data_dir)
-
-# Copy default CSVs to data/ if they don't exist
-if not os.path.exists(os.path.join(data_dir, "netflix_titles.csv")) and os.path.exists("netflix_titles.csv"):
-    shutil.copy("netflix_titles.csv", os.path.join(data_dir, "netflix_titles.csv"))
-
-if not os.path.exists(os.path.join(data_dir, "spotify_youtube.csv")) and os.path.exists("Spotify_Youtube.csv"):
-    shutil.copy("Spotify_Youtube.csv", os.path.join(data_dir, "spotify_youtube.csv"))
 
 st.set_page_config(page_title="Netflix & Spotify Explorer", layout="wide")
 
@@ -59,8 +46,8 @@ st.sidebar.write("Upload your CSVs (or keep blank to try fallback paths).")
 netflix_file = st.sidebar.file_uploader("Netflix CSV (netflix_titles.csv)", type=["csv"], key="netflix")
 spotify_file = st.sidebar.file_uploader("Spotify CSV (tracks.csv / Spotify_Youtube.csv)", type=["csv"], key="spotify")
 
-fallback_netflix = st.sidebar.text_input("Fallback Netflix path", value=os.path.join(data_dir, "netflix_titles.csv"))
-fallback_spotify = st.sidebar.text_input("Fallback Spotify path", value=os.path.join(data_dir, "spotify_youtube.csv"))
+fallback_netflix = st.sidebar.text_input("Fallback Netflix path", value="netflix_titles.csv")
+fallback_spotify = st.sidebar.text_input("Fallback Spotify path", value="Spotify_Youtube.csv")
 
 netflix = load_csv(netflix_file, fallback_netflix)
 spotify = load_csv(spotify_file, fallback_spotify)
