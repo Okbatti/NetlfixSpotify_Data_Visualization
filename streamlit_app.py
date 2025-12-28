@@ -46,8 +46,8 @@ st.sidebar.write("Upload your CSVs (or keep blank to try fallback paths).")
 netflix_file = st.sidebar.file_uploader("Netflix CSV (netflix_titles.csv)", type=["csv"], key="netflix")
 spotify_file = st.sidebar.file_uploader("Spotify CSV (tracks.csv / Spotify_Youtube.csv)", type=["csv"], key="spotify")
 
-fallback_netflix = st.sidebar.text_input("Fallback Netflix path", value="netflix_titles.csv")
-fallback_spotify = st.sidebar.text_input("Fallback Spotify path", value="Spotify_Youtube.csv")
+fallback_netflix = "netflix_titles.csv"
+fallback_spotify = "Spotify_Youtube.csv"
 
 netflix = load_csv(netflix_file, fallback_netflix)
 spotify = load_csv(spotify_file, fallback_spotify)
